@@ -1,0 +1,51 @@
+# The AI Investigator application.
+#
+# Copyright (C) 2026 Nathaniel Wasserman <thangov@gmail.com>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+###################################################################################################
+# AI Investigator Configuration File
+###################################################################################################
+
+# Active Model Selection (GEMINI or OPENAI)
+
+provider=OPENAI
+model_name=gpt-4o-mini
+api_key=YOUR_API_KEY
+
+# Log configuration
+
+remote_log_url=YOUR_DATABASE_URL
+remote_log_table=YOUR_DATABASE_TABLE
+remote_log_timestamp_column=timestamp
+remote_log_participant_id_column=participant_id
+remote_log_chat_log_column=result
+
+# Session Configuration
+
+session_duration=5m
+return_key_sends_message=true
+follow_on_url=YOUR_FOLLOW_ON_URL
+session_end_message=Thank you for completing this part of the study.
+Please click the button below to continue to the next part of the study.
+
+# AI Agent Instructions (You can add more conditions by adding more agent_instructions_X lines)
+
+agent_instructions_group1=Enter instructions for group 1.
+Instructions can be multiple lines.
+
+agent_instructions_group2=Enter instructions for group 2.
+
+agent_instructions_control=Enter instructions for control group.
