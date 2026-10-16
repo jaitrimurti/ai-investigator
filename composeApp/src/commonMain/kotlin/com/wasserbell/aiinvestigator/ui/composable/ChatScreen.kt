@@ -86,9 +86,15 @@ fun ChatScreen(
     var isTimeUp by remember { mutableStateOf(false) }
 
     if (sessionDuration < Duration.INFINITE) {
-        LaunchedEffect(Unit) {
-            delay(sessionDuration)
-            isTimeUp = true
+        val atLeastOneResponse by remember {
+            derivedStateOf { messages.count { it.isFromUser } > 0 }
+        }
+
+        LaunchedEffect(atLeastOneResponse) {
+            if (atLeastOneResponse) {
+                delay(sessionDuration)
+                isTimeUp = true
+            }
         }
     }
 
