@@ -23,33 +23,22 @@ import com.wasserbell.aiinvestigator.data.repository.AppConfig
 import com.wasserbell.aiinvestigator.domain.model.ChatMessage
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
-import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 
 /** [AiService] for OpenAI ChatGPT. */
-class OpenAiService(private val apiKey: String) : AiService {
+class OpenAiService(
+    private val apiKey: String,
+    private val httpClient: HttpClient,
+) : AiService {
 
-    private val httpClient = HttpClient {
-        install(ContentNegotiation) {
-            json(Json {
-                ignoreUnknownKeys = true
-                prettyPrint = true
-                isLenient = true
-            })
-        }
-    }
-
-    override suspend fun sendMessage(history: List<ChatMessage>, newText: String): String {
+    override suspend fun sendMessage(conversation: List<ChatMessage>): String {
         if (apiKey.isBlank()) {
             return "Error: OpenAI API Key is missing. Please check your config.txt."
         }
@@ -63,13 +52,18 @@ class OpenAiService(private val apiKey: String) : AiService {
         if (AppConfig.agentInstructions.isNotBlank()) {
             messages.add(
                 OpenAiMessage(
-                    role = "system",
+                    role = when {
+                        // "Reasoning" models use "developer" instead of "system"
+                        AppConfig.modelName.startsWith("o1") -> "developer"
+                        AppConfig.modelName.startsWith("o3") -> "developer"
+                        else -> "system"
+                    },
                     content = AppConfig.agentInstructions
                 )
             )
         }
 
-        history.forEach {
+        conversation.forEach {
             messages.add(
                 OpenAiMessage(
                     role = if (it.isFromUser) "user" else "assistant",
@@ -78,31 +72,40 @@ class OpenAiService(private val apiKey: String) : AiService {
             )
         }
 
-        messages.add(
-            OpenAiMessage(
-                role = "user",
-                content = newText
-            )
-        )
-
         val requestBody = OpenAiRequest(model = AppConfig.modelName, messages = messages)
 
-        return try {
+        try {
             val response: HttpResponse = httpClient.post(url) {
                 contentType(ContentType.Application.Json)
                 bearerAuth(apiKey)
                 setBody(requestBody)
             }
 
+            // If success is reported, parse and return the response.
+            // The response should be a message or a refusal reason, but we check for an
+            // empty message as well to have better behavior if nothing is returned.
             if (response.status.isSuccess()) {
-                val openAiResponse = response.body<OpenAiResponse>()
-                openAiResponse.choices?.firstOrNull()?.message?.content
-                    ?: "AI returned an empty response."
-            } else {
-                "Error: API returned status ${response.status}. Body: ${response.bodyAsText()}"
+                val message =
+                    runCatching { response.body<OpenAiResponse>() }
+                        .getOrNull()
+                        ?.choices
+                        ?.firstOrNull()
+                        ?.message
+                return message?.content ?: message?.refusal ?: "AI returned an empty response."
             }
+
+            // If a failure is reported, attempt to parse the error message and return it.
+            val errorMessage =
+                runCatching { response.body<OpenAiErrorResponse>() }.getOrNull()?.error?.message
+            if (!errorMessage.isNullOrBlank()) {
+                return "Error: $errorMessage"
+            }
+
+            // Fallback to returning the actual response code to help us debug unexpected error
+            // scenarios, such as from updates to the Open AI api.
+            return "Error: API returned status ${response.status}"
         } catch (e: Exception) {
-            "Network Request Failed: ${e.message}"
+            return "Network Request Failed: ${e.message}"
         }
     }
 }
@@ -120,7 +123,8 @@ private data class OpenAiRequest(
 @Serializable
 private data class OpenAiMessage(
     val role: String, // "system", "user", "assistant"
-    val content: String
+    val content: String? = null,
+    val refusal: String? = null
 )
 
 @Serializable
@@ -131,4 +135,17 @@ private data class OpenAiResponse(
 @Serializable
 private data class OpenAiChoice(
     val message: OpenAiMessage? = null
+)
+
+@Serializable
+private data class OpenAiErrorResponse(
+    val error: OpenAiErrorDetail? = null
+)
+
+@Serializable
+private data class OpenAiErrorDetail(
+    val message: String? = null,
+    val type: String? = null,
+    val param: String? = null,
+    val code: String? = null
 )

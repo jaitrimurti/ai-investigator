@@ -23,7 +23,6 @@ import com.wasserbell.aiinvestigator.data.repository.AppConfig
 import com.wasserbell.aiinvestigator.domain.model.ChatMessage
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -31,24 +30,15 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
-import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 
 /** [AiService] for Google Gemini. */
-class GeminiAiService(private val apiKey: String) : AiService {
+class GeminiAiService(
+    private val apiKey: String,
+    private val httpClient: HttpClient,
+) : AiService {
 
-    private val httpClient = HttpClient {
-        install(ContentNegotiation) {
-            json(Json {
-                ignoreUnknownKeys = true
-                prettyPrint = true
-                isLenient = true
-            })
-        }
-    }
-
-    override suspend fun sendMessage(history: List<ChatMessage>, newText: String): String {
+    override suspend fun sendMessage(conversation: List<ChatMessage>): String {
         if (apiKey.isBlank()) {
             return "Error: Gemini API Key is missing. Please check your config.txt."
         }
@@ -96,7 +86,7 @@ class GeminiAiService(private val apiKey: String) : AiService {
             )
         }
 
-        history.forEach {
+        conversation.forEach {
             contents.add(
                 GeminiContent(
                     role = if (it.isFromUser) "user" else "model",
@@ -104,13 +94,6 @@ class GeminiAiService(private val apiKey: String) : AiService {
                 )
             )
         }
-
-        contents.add(
-            GeminiContent(
-                role = "user",
-                parts = listOf(GeminiPart(text = newText))
-            )
-        )
 
         val requestBody = GeminiRequest(contents = contents)
 

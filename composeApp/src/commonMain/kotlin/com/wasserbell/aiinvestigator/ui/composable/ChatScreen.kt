@@ -150,9 +150,9 @@ fun ChatScreen(
                         messages = messages + loadingMessage
 
                         scope.launch {
-                            val aiService = AiServiceProvider.getService()
+                            val aiService = AiServiceProvider.aiService
                             val responseText =
-                                aiService.sendMessage(messages.dropLast(1), userText)
+                                aiService.sendMessage(messages.dropLast(1))
 
                             messages = messages.filter { it.id != loadingId } + ChatMessage(
                                 id = loadingId,

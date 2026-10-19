@@ -23,22 +23,19 @@ import com.wasserbell.aiinvestigator.data.repository.AiProvider
 import com.wasserbell.aiinvestigator.data.repository.AppConfig
 import com.wasserbell.aiinvestigator.domain.model.ChatMessage
 import io.ktor.client.*
-import io.ktor.client.call.*
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.*
-import io.ktor.client.request.*
-import io.ktor.client.statement.*
-import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 /** An AI API provider. */
 interface AiService {
     /**
-     * Sends a message and the conversation history to the AI Agent and returns the generated text
-     * response.
+     * Sends the conversation so far to the AI Agent and returns the generated text response.
      */
-    suspend fun sendMessage(history: List<ChatMessage>, newText: String): String
+    suspend fun sendMessage(conversation: List<ChatMessage>): String
 }
 
 /**
@@ -46,11 +43,28 @@ interface AiService {
  */
 object AiServiceProvider {
 
-    /** Returns the configured [AiService]. */
-    fun getService(): AiService {
-        return when (AppConfig.aiProvider) {
-            AiProvider.GEMINI -> GeminiAiService(AppConfig.apiKey)
-            AiProvider.OPENAI -> OpenAiService(AppConfig.apiKey)
+    private val httpClient by lazy {
+        HttpClient {
+            install(ContentNegotiation) {
+                json(Json {
+                    ignoreUnknownKeys = true
+                    prettyPrint = true
+                    isLenient = true
+                })
+            }
+            install(HttpTimeout) {
+                requestTimeoutMillis = 1.minutes.inWholeMilliseconds
+                socketTimeoutMillis = 1.minutes.inWholeMilliseconds
+                connectTimeoutMillis = 15.seconds.inWholeMilliseconds
+            }
+        }
+    }
+
+    /** The configured [AiService]. */
+    val aiService by lazy {
+        when (AppConfig.aiProvider) {
+            AiProvider.GEMINI -> GeminiAiService(AppConfig.apiKey, httpClient)
+            AiProvider.OPENAI -> OpenAiService(AppConfig.apiKey, httpClient)
             AiProvider.NOT_SET ->
                 throw IllegalStateException("AI provider not set. Please check config.txt.")
         }
