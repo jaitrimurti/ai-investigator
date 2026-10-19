@@ -30,6 +30,7 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 
 /** [AiService] for OpenAI ChatGPT. */
@@ -45,18 +46,19 @@ class OpenAiService(
         if (AppConfig.modelName.isBlank()) {
             return "Error: OpenAI model name is missing. Please check your config.txt."
         }
+        if (conversation.isEmpty()) {
+            return "Error: Conversation is empty."
+        }
 
         val url = "https://api.openai.com/v1/chat/completions"
-        val messages = mutableListOf<OpenAiMessage>()
+        val messages = mutableListOf<OpenAiRequestMessage>()
 
         if (AppConfig.agentInstructions.isNotBlank()) {
             messages.add(
-                OpenAiMessage(
+                OpenAiRequestMessage(
                     role = when {
-                        // "Reasoning" models use "developer" instead of "system"
-                        AppConfig.modelName.startsWith("o1") -> "developer"
-                        AppConfig.modelName.startsWith("o3") -> "developer"
-                        else -> "system"
+                        LEGACY_MODELS.contains(AppConfig.modelName) -> "system"
+                        else -> "developer"
                     },
                     content = AppConfig.agentInstructions
                 )
@@ -65,7 +67,7 @@ class OpenAiService(
 
         conversation.forEach {
             messages.add(
-                OpenAiMessage(
+                OpenAiRequestMessage(
                     role = if (it.isFromUser) "user" else "assistant",
                     content = it.text
                 )
@@ -91,61 +93,115 @@ class OpenAiService(
                         ?.choices
                         ?.firstOrNull()
                         ?.message
-                return message?.content ?: message?.refusal ?: "AI returned an empty response."
+                val text = message?.content ?: message?.refusal
+                return if (text.isNullOrBlank()) {
+                    "AI returned an empty response."
+                } else {
+                    text.redacted()
+                }
             }
 
             // If a failure is reported, attempt to parse the error message and return it.
-            val errorMessage =
-                runCatching { response.body<OpenAiErrorResponse>() }.getOrNull()?.error?.message
-            if (!errorMessage.isNullOrBlank()) {
-                return "Error: $errorMessage"
+            val error = runCatching { response.body<OpenAiErrorResponse>() }.getOrNull()?.error
+            if (!error?.message.isNullOrBlank()) {
+                return buildString {
+                    append("Error")
+                    if (!error.code.isNullOrBlank()) {
+                        append(" ")
+                        append(error.code)
+                    }
+                    append(": ")
+                    append(error.message.redacted())
+                }
             }
 
             // Fallback to returning the actual response code to help us debug unexpected error
             // scenarios, such as from updates to the Open AI api.
             return "Error: API returned status ${response.status}"
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            return "Network Request Failed: ${e.message}"
+            return "Network Request Failed: ${e.message?.redacted()}"
         }
     }
 }
+
+/** Legacy models use the "system" role for agent instructions. */
+private val LEGACY_MODELS = listOf(
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-4-turbo",
+    "gpt-4-turbo-preview",
+    "gpt-4",
+    "gpt-4-32k",
+    "gpt-3.5-turbo",
+    "gpt-3.5-turbo-0125",
+    "gpt-3.5-turbo-1106",
+)
+
+private const val REDACTED = "[REDACTED]"
+
+private fun String.redacted(): String =
+    replace(AppConfig.agentInstructions, REDACTED)
+        .replace(AppConfig.apiKey, REDACTED)
+        .let {
+            val remoteLogApiKey = AppConfig.remoteLogApiKey
+            if (remoteLogApiKey.isNullOrBlank()) {
+                it
+            } else {
+                it.replace(remoteLogApiKey, REDACTED)
+            }
+        }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // DTO classes for easier construction and serialization of requests
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+/** Body of a request to send to the Open AI API. */
 @Serializable
 private data class OpenAiRequest(
     val model: String,
-    val messages: List<OpenAiMessage>
+    val messages: List<OpenAiRequestMessage>,
 )
 
+/** An individual message in the conversation to send to the Open AI API. */
 @Serializable
-private data class OpenAiMessage(
-    val role: String, // "system", "user", "assistant"
+private data class OpenAiRequestMessage(
+    val role: String, // "developer", "system" (Only for legacy), "user", "assistant"
     val content: String? = null,
-    val refusal: String? = null
 )
 
+/** Body of a success response from the Open AI API. */
 @Serializable
 private data class OpenAiResponse(
-    val choices: List<OpenAiChoice>? = null
+    val choices: List<OpenAiChoice>? = null,
 )
 
+/** An individual choice of response from the Open AI API. */
 @Serializable
 private data class OpenAiChoice(
-    val message: OpenAiMessage? = null
+    val message: OpenAiResponseMessage? = null,
 )
 
+/** An individual message in the response from the Open AI API. */
+@Serializable
+private data class OpenAiResponseMessage(
+    val role: String, // "developer", "system" (Only for legacy), "user", "assistant"
+    val content: String? = null,
+    val refusal: String? = null,
+)
+
+/** The body of a failure response from the Open AI API. */
 @Serializable
 private data class OpenAiErrorResponse(
-    val error: OpenAiErrorDetail? = null
+    val error: OpenAiErrorDetail? = null,
 )
 
+/** Error information from the Open AI Api. */
 @Serializable
 private data class OpenAiErrorDetail(
     val message: String? = null,
     val type: String? = null,
     val param: String? = null,
-    val code: String? = null
+    val code: String? = null,
 )
