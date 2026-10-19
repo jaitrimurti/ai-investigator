@@ -150,7 +150,7 @@ private fun String.redact(str: String?): String =
     if (str.isNullOrBlank()) {
         this
     } else {
-        str.replace(str, REDACTED)
+        replace(str, REDACTED)
     }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////

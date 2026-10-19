@@ -26,10 +26,10 @@ import io.ktor.client.call.body
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 
 /** [AiService] for Google Gemini. */
@@ -42,14 +42,15 @@ class GeminiAiService(
         if (apiKey.isBlank()) {
             return "Error: Gemini API Key is missing. Please check your config.txt."
         }
+        if (AppConfig.modelName.isBlank()) {
+            return "Error: Gemini model name is missing. Please check your config.txt."
+        }
+        if (conversation.isEmpty()) {
+            return "Error: Conversation is empty."
+        }
 
         val url =
-            buildString {
-                append("\"https://generativelanguage.googleapis.com/v1beta/models/")
-                append(AppConfig.modelName)
-                append(":generateContent?")
-                append("key=$apiKey")
-            }
+            "https://generativelanguage.googleapis.com/v1beta/models/${AppConfig.modelName}:generateContent?key=$apiKey"
 
         val contents = mutableListOf<GeminiContent>()
 
@@ -97,51 +98,118 @@ class GeminiAiService(
 
         val requestBody = GeminiRequest(contents = contents)
 
-        return try {
+        try {
             val response: HttpResponse = httpClient.post(url) {
                 contentType(ContentType.Application.Json)
                 setBody(requestBody)
             }
 
+            // If success is reported, parse and return the response.
+            // We check for an empty message as well to have better behavior if nothing is returned.
             if (response.status.isSuccess()) {
-                val geminiResponse = response.body<GeminiResponse>()
-                geminiResponse.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                    ?: "AI returned an empty response."
-            } else {
-                "Error: API returned status ${response.status}. Body: ${response.bodyAsText()}"
+                val text =
+                    runCatching { response.body<GeminiResponse>() }
+                        .getOrNull()
+                        ?.candidates
+                        ?.firstOrNull()
+                        ?.content
+                        ?.parts
+                        ?.firstOrNull()
+                        ?.text
+                return if (text.isNullOrBlank()) {
+                    "AI returned an empty response."
+                } else {
+                    text.redacted()
+                }
             }
+
+            // If a failure is reported, attempt to parse the error message and return it.
+            val error = runCatching { response.body<GeminiErrorResponse>() }.getOrNull()?.error
+            if (!error?.message.isNullOrBlank()) {
+                return buildString {
+                    append("Error")
+                    if (!error.status.isNullOrBlank()) {
+                        append(" ")
+                        append(error.status)
+                    } else if (error.code != null) {
+                        append(" ")
+                        append(error.code)
+                    }
+                    append(": ")
+                    append(error.message.redacted())
+                }
+            }
+
+            // Fallback to returning the actual response code to help us debug unexpected error
+            // scenarios, such as from updates to the Gemini api.
+            return "Error: API returned status ${response.status}"
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            "Network Request Failed: ${e.message}"
+            return "Network Request Failed: ${e.message?.redacted()}"
         }
     }
 }
+
+private const val REDACTED = "[REDACTED]"
+
+private fun String.redacted(): String =
+    redact(AppConfig.agentInstructions)
+        .redact(AppConfig.apiKey)
+        .redact(AppConfig.remoteLogApiKey)
+
+private fun String.redact(str: String?): String =
+    if (str.isNullOrBlank()) {
+        this
+    } else {
+        replace(str, REDACTED)
+    }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // DTO classes for easier construction and serialization of requests
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+/** Body of a request to send to the Gemini API. */
 @Serializable
 private data class GeminiRequest(
-    val contents: List<GeminiContent>
+    val contents: List<GeminiContent>,
 )
 
+/** An individual content block in the conversation to send to the Gemini API. */
 @Serializable
 private data class GeminiContent(
     val parts: List<GeminiPart>,
-    val role: String // "user" or "model"
+    val role: String, // "user" or "model"
 )
 
+/** An individual part of a content block. */
 @Serializable
 private data class GeminiPart(
-    val text: String
+    val text: String? = null,
 )
 
+/** Body of a success response from the Gemini API. */
 @Serializable
 private data class GeminiResponse(
-    val candidates: List<GeminiCandidate>? = null
+    val candidates: List<GeminiCandidate>? = null,
 )
 
+/** An individual candidate response from the Gemini API. */
 @Serializable
 private data class GeminiCandidate(
-    val content: GeminiContent? = null
+    val content: GeminiContent? = null,
+)
+
+/** The body of a failure response from the Gemini API. */
+@Serializable
+private data class GeminiErrorResponse(
+    val error: GeminiErrorDetail? = null,
+)
+
+/** Error information from the Gemini API. */
+@Serializable
+private data class GeminiErrorDetail(
+    val code: Int? = null,
+    val message: String? = null,
+    val status: String? = null,
 )
