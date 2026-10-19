@@ -142,16 +142,16 @@ private val LEGACY_MODELS = listOf(
 private const val REDACTED = "[REDACTED]"
 
 private fun String.redacted(): String =
-    replace(AppConfig.agentInstructions, REDACTED)
-        .replace(AppConfig.apiKey, REDACTED)
-        .let {
-            val remoteLogApiKey = AppConfig.remoteLogApiKey
-            if (remoteLogApiKey.isNullOrBlank()) {
-                it
-            } else {
-                it.replace(remoteLogApiKey, REDACTED)
-            }
-        }
+    redact(AppConfig.agentInstructions)
+        .redact(AppConfig.apiKey)
+        .redact(AppConfig.remoteLogApiKey)
+
+private fun String.redact(str: String?): String =
+    if (str.isNullOrBlank()) {
+        this
+    } else {
+        str.replace(str, REDACTED)
+    }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // DTO classes for easier construction and serialization of requests
