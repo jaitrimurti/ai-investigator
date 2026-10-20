@@ -54,39 +54,6 @@ class GeminiAiService(
 
         val contents = mutableListOf<GeminiContent>()
 
-        if (AppConfig.agentInstructions.isNotBlank()) {
-            // I should be using the system instruction field to pass the agent instructions, but
-            // this hack is an easy solution that does also work. If it causes a problem change this
-            // block to pass the instructions in the correct request field.
-            contents.add(
-                GeminiContent(
-                    role = "user",
-                    parts =
-                        listOf(
-                            GeminiPart(
-                                text =
-                                    buildString {
-                                        append("System Objective: ${AppConfig.agentInstructions}")
-                                        append("\n\nAcknowledge this objective and behave ")
-                                        append("accordingly for the remainder of this session.")
-                                    }
-                            )
-                        )
-                )
-            )
-            contents.add(
-                GeminiContent(
-                    role = "model",
-                    parts =
-                        listOf(
-                            GeminiPart(
-                                text = "I understand and will follow the provided system objective."
-                            )
-                        )
-                )
-            )
-        }
-
         conversation.forEach {
             contents.add(
                 GeminiContent(
@@ -96,7 +63,20 @@ class GeminiAiService(
             )
         }
 
-        val requestBody = GeminiRequest(contents = contents)
+        val systemInstruction =
+            if (AppConfig.agentInstructions.isNotBlank()) {
+                GeminiSystemInstruction(
+                    parts = listOf(GeminiPart(text = AppConfig.agentInstructions))
+                )
+            } else {
+                null
+            }
+
+        val requestBody =
+            GeminiRequest(
+                contents = contents,
+                system_instruction = systemInstruction,
+            )
 
         try {
             val response: HttpResponse = httpClient.post(url) {
@@ -173,6 +153,13 @@ private fun String.redact(str: String?): String =
 @Serializable
 private data class GeminiRequest(
     val contents: List<GeminiContent>,
+    val system_instruction: GeminiSystemInstruction? = null,
+)
+
+/** The system instructions to guide the behavior of the model. */
+@Serializable
+private data class GeminiSystemInstruction(
+    val parts: List<GeminiPart>,
 )
 
 /** An individual content block in the conversation to send to the Gemini API. */
