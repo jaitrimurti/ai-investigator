@@ -136,15 +136,9 @@ object ChatLogger {
         timestampCol: String,
         chatCol: String,
     ): String = buildString {
-        append("INSERT INTO ")
-        append(table)
-        append(" (")
-        append(participantIdCol)
-        append(", ")
-        append(timestampCol)
-        append(", ")
-        append(chatCol)
-        append($$") VALUES ($1, now(), $2::json)")
+        append("INSERT INTO $table")
+        append(" ($participantIdCol,$timestampCol,$chatCol)")
+        append($$" VALUES ($1, now(), $2::json)")
     }
 
     @Serializable
