@@ -27,8 +27,9 @@ Wasm GC support is currently under
 
 Run the application by typing one of the following Gradle commands in the terminal:
 
-* **Web version:**
+### Web version:
 
+  #### Run
   `./gradlew :composeApp:wasmJsBrowserProductionRun`
   <br>&nbsp;<br>
 
@@ -40,7 +41,14 @@ Run the application by typing one of the following Gradle commands in the termin
   > The port number can vary. If the port 8080 is unavailable, you can find the corresponding port number printed in the console
   > after building the application.
 <br>&nbsp;<br>
+  
+  #### Build
 
-* **Desktop version:**
+  `./gradlew :composeApp:wasmJsBrowserDistribution`
 
+  The output will be in `./composeApp/build/dist/wasmJs/productionExecutable/`
+
+### Desktop version:
+
+  #### Run
   `./gradlew :composeApp:run`
